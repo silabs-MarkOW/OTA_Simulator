@@ -12,6 +12,8 @@ ignored_events = ['bt_evt_connection_parameters',
 xapi = 'sl_bt.xapi'
 connector = None
 baudrate = 115200
+
+config = {'name':'OTA Simulator'}
 target = {'address':None}
 state = 'start'
 duration = 10
@@ -41,19 +43,19 @@ for opt,param in opts :
     elif '-t' == opt :
         connector = bgapi.SocketConnector((param,4901))
     elif '-u' == opt :
-        connector = bgapi.SerialConnector(param,bauderate=baudrate)
+        connector = bgapi.SerialConnector(param,baudrate=baudrate)
     elif '-x' == opt :
         xapi = param
     elif '-b' == opt :
+        if None != connector :
+            exit_help('Because I am lazy, -b must be placed before -u')
         baudrate = int(param)
     elif '-l' == opt :
         list_mode = True
     elif '-d' == opt :
         duration = float(param)
     elif '-n' == opt :
-        match_name = param
-        match_service = None
-        match_address = None
+        config['name'] = param
     elif '-a' == opt :
         match_address = param
         match_service = None
@@ -78,9 +80,22 @@ def setState(new_state) :
 
 def generate_gatt() :
     sid = dev.bt.gattdb.new_session().session
-    ota_service = dev.bt.gattdb.add_service(sid,0,0,16,OTA_SERVICE_UUID.to_bytes(16,'little')).service
+    bytesUUID = OTA_SERVICE_UUID.to_bytes(16,'little')
+    print('sid:',sid,'bytesUUID:',bytesUUID)
+    ota_service = dev.bt.gattdb.add_service(sid,0,0,bytesUUID)
+    print(ota_service)
     dev.bt.gattdb.commit(sid)
-    
+
+def start_advertising(handle) :
+    if 'application' == identity :
+        flags = b'\x02\x01\x06'
+        encodedName = len(config['name']).encode(0)
+        mainPayload = flags + (len(encodedName)+1).to_bytes(1,'little') + b'\x09' + encodedName
+        if len(mainPayload) > 31 :
+            raise RuntimeError('mainPayload too long')
+        dev.bt.legacy_advertiser.data_set(handle,0,mainPayload)
+        dev.bt.legacy_advertiser.start(handle,1)
+        
 def sl_bt_on_event(evt) :
     global app_rssi
     global timeout
