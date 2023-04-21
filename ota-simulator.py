@@ -14,6 +14,8 @@ connector = None
 baudrate = 115200
 
 config = {'name':'OTA Simulator'}
+identity = 'application'
+
 target = {'address':None}
 state = 'start'
 duration = 10
@@ -65,6 +67,8 @@ for opt,param in opts :
     else :
         exit_help('Unrecognized option "%s"'%(opt))
 
+print(config)
+
 if None == connector :
     exit_help('Either -t or -u is required')
 
@@ -79,22 +83,28 @@ def setState(new_state) :
     state = new_state
 
 def generate_gatt() :
-    sid = dev.bt.gattdb.new_session().session
     bytesUUID = OTA_SERVICE_UUID.to_bytes(16,'little')
+    sid = dev.bt.gattdb.new_session().session
     print('sid:',sid,'bytesUUID:',bytesUUID)
-    ota_service = dev.bt.gattdb.add_service(sid,0,0,bytesUUID)
-    print(ota_service)
+    ota_service = dev.bt.gattdb.add_service(sid,0,0,bytesUUID).service
+    dev.bt.gattdb.start_service(sid,ota_service)
     dev.bt.gattdb.commit(sid)
+    try :
+        ota_service = dev.bt.gatt_server.find_attribute(1,bytesUUID)
+        print(ota_service)
+    except bgapi.bglib.CommandFailedError:
+        print('ota service not found')
 
 def start_advertising(handle) :
     if 'application' == identity :
         flags = b'\x02\x01\x06'
-        encodedName = len(config['name']).encode(0)
+        encodedName = config['name'].encode()
         mainPayload = flags + (len(encodedName)+1).to_bytes(1,'little') + b'\x09' + encodedName
         if len(mainPayload) > 31 :
             raise RuntimeError('mainPayload too long')
-        dev.bt.legacy_advertiser.data_set(handle,0,mainPayload)
-        dev.bt.legacy_advertiser.start(handle,1)
+        dev.bt.legacy_advertiser.set_data(handle,0,mainPayload)
+        dev.bt.legacy_advertiser.start(handle,2)
+        setState('advertising')
         
 def sl_bt_on_event(evt) :
     global app_rssi
@@ -103,9 +113,7 @@ def sl_bt_on_event(evt) :
         print('system-boot: BLE SDK %dv%dp%db%d'%(evt.major,evt.minor,evt.patch,evt.build))
         generate_gatt()
         adv_handle = dev.bt.advertiser.create_set().handle
-        dev.bt.legacy_advertiser.generate_data(adv_handle,2)
-        dev.bt.legacy_advertiser.start(adv_handle,2)
-        setState('advertising')
+        start_advertising(adv_handle)
     elif 'bt_evt_connection_opened' == evt :
         if 'connecting' != state :
             setState('confused')
